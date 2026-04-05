@@ -165,7 +165,7 @@ st.title(f"💰 ExpenseFlow – Welcome {st.session_state.username}")
 
 df = load_data()
 
-# ---------- SIDEBAR: ADD TRANSACTION ----------
+# ---------- SIDEBAR: ADD TRANSACTION & AI CHATBOT ----------
 with st.sidebar:
     st.header("➕ Add Transaction")
     trans_date = st.date_input("Date", value=date.today())
@@ -191,6 +191,62 @@ with st.sidebar:
         save_data(df)
         st.success("Transaction added!")
         st.rerun()
+
+    # ---------- AI CHATBOT ----------
+    st.divider()
+    st.header("🤖 AI Assistant")
+    st.write("Ask me anything about ExpenseFlow or personal finance!")
+    
+    # Initialize chat history in session state
+    if "chat_history" not in st.session_state:
+        st.session_state.chat_history = []
+    
+    # Display chat history
+    for msg in st.session_state.chat_history:
+        with st.chat_message(msg["role"]):
+            st.write(msg["content"])
+    
+    # Chat input
+    user_question = st.chat_input("Type your question...")
+    
+    if user_question:
+        # Add user message to history
+        st.session_state.chat_history.append({"role": "user", "content": user_question})
+        with st.chat_message("user"):
+            st.write(user_question)
+        
+        # Generate AI response
+        with st.chat_message("assistant"):
+            try:
+                import google.generativeai as genai
+                # Try to get API key from Streamlit secrets first
+                api_key = st.secrets.get("GEMINI_API_KEY", None)
+                if api_key is None:
+                    # For local testing: ask user to enter key (only once per session)
+                    if "gemini_key_input" not in st.session_state:
+                        api_key = st.text_input("Enter your Gemini API key:", type="password", key="temp_key")
+                        if api_key:
+                            st.session_state.gemini_key_input = api_key
+                            st.rerun()
+                        else:
+                            st.warning("Please enter your Gemini API key to use the chatbot.")
+                            response_text = "⚠️ API key missing. Please add your Gemini API key in the sidebar."
+                    else:
+                        api_key = st.session_state.gemini_key_input
+                
+                if api_key:
+                    genai.configure(api_key=api_key)
+                    model = genai.GenerativeModel('gemini-1.5-flash')
+                    prompt = f"You are a helpful assistant for a personal finance app called ExpenseFlow. Answer the user's question concisely and helpfully.\n\nUser question: {user_question}"
+                    response = model.generate_content(prompt)
+                    response_text = response.text
+                else:
+                    response_text = "⚠️ API key not provided. Please enter your Gemini API key to use the chatbot."
+            except Exception as e:
+                response_text = f"Sorry, I encountered an error: {str(e)}"
+            
+            st.write(response_text)
+            st.session_state.chat_history.append({"role": "assistant", "content": response_text})
 
 # ---------- PREPARE MONTHLY DATA ----------
 if len(df) > 0:
