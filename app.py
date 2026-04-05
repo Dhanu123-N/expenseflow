@@ -2,7 +2,7 @@ import streamlit as st
 import pandas as pd
 import plotly.express as px
 from datetime import date, datetime
-import io  # NEW: for in-memory bytes (Excel download)
+import io
 
 # ---------- DATA STORAGE ----------
 DATA_FILE = "expenses.csv"
@@ -10,20 +10,11 @@ DATA_FILE = "expenses.csv"
 def load_data():
     try:
         df = pd.read_csv(DATA_FILE)
-
-        # 🔥 REMOVE duplicate / wrong columns
-        df.columns = df.columns.str.strip()
-
-        correct_cols = ["Date", "Category", "Amount", "Type", "Description"]
-        df = df[[col for col in df.columns if col in correct_cols]]
-
         df["Date"] = pd.to_datetime(df["Date"], errors="coerce")
         df = df.dropna(subset=["Date"])
-
     except FileNotFoundError:
         df = pd.DataFrame(columns=["Date", "Category", "Amount", "Type", "Description"])
         df.to_csv(DATA_FILE, index=False)
-
     return df
 
 def save_data(df):
@@ -85,27 +76,33 @@ if selected_month != "All" and len(df) > 0:
 else:
     df_filtered = df.copy()
 
-# ---------- NEW: BUDGET ALERT ----------
+# ---------- DARK MODE TOGGLE (NEW) ----------
+dark_mode = st.toggle("🌙 Dark Mode", value=False)
+if dark_mode:
+    st.markdown("""
+    <style>
+    .stApp { background-color: #0e1117; color: white; }
+    </style>
+    """, unsafe_allow_html=True)
+
+# ---------- SEARCH BY DESCRIPTION (NEW) ----------
+search_term = st.text_input("🔍 Search by description", placeholder="Type keyword...")
+if search_term:
+    df_filtered = df_filtered[df_filtered["Description"].str.contains(search_term, case=False, na=False)]
+
+# ---------- BUDGET ALERT ----------
 st.subheader("💰 Monthly Budget")
 
-# Only show budget setting if a specific month is selected
 if selected_month != "All" and len(df_filtered) > 0:
-    # Calculate total expense for selected month
     monthly_expense = df_filtered[df_filtered["Type"] == "Expense"]["Amount"].sum()
-    
-    # Default budget (you can change this value)
     default_budget = 20000
     budget = st.number_input("Set your monthly budget (₹)", min_value=0, value=default_budget, step=1000)
     
-    # Calculate percentage spent
     if budget > 0:
         percent_spent = (monthly_expense / budget) * 100
         st.write(f"**Spent:** ₹{monthly_expense:,.2f} of ₹{budget:,.2f} ({percent_spent:.1f}%)")
-        
-        # Progress bar
         st.progress(min(percent_spent / 100, 1.0))
         
-        # Alert logic
         if percent_spent >= 100:
             st.error(f"⚠️ Alert! You've exceeded your budget by ₹{monthly_expense - budget:,.2f}!")
         elif percent_spent >= 80:
@@ -131,20 +128,15 @@ if len(df_filtered) > 0:
     col2.metric("Total Expense", f"₹{total_expense:,.2f}")
     col3.metric("Remaining Balance", f"₹{remaining:,.2f}")
     
-    # ---------- NEW: SPENDING TREND LINE CHART ----------
+    # ---------- SPENDING TREND LINE CHART ----------
     st.subheader("📈 Spending Trend Over Months")
-    # Aggregate expenses by month (for all data, not just filtered)
     if len(df) > 0:
-        # Create a copy for trend analysis
         trend_df = df[df["Type"] == "Expense"].copy()
         if len(trend_df) > 0:
-            # Group by YearMonth and sum expenses
             monthly_expenses = trend_df.groupby("YearMonth")["Amount"].sum().reset_index()
-            # Sort by date
             monthly_expenses["sort_key"] = monthly_expenses["YearMonth"].apply(lambda x: datetime.strptime(x, "%B %Y"))
             monthly_expenses = monthly_expenses.sort_values("sort_key")
             
-            # Create line chart
             fig_line = px.line(monthly_expenses, x="YearMonth", y="Amount", 
                                title="Monthly Expenses Trend",
                                labels={"Amount": "Expense (₹)", "YearMonth": "Month"})
@@ -155,7 +147,7 @@ if len(df_filtered) > 0:
     else:
         st.info("Add some expenses to see spending trends.")
     
-    # ---------- PIE CHART (Expenses only) ----------
+    # ---------- PIE CHART ----------
     st.subheader("🥧 Expenses by Category")
     expense_df = df_filtered[df_filtered["Type"] == "Expense"]
     if len(expense_df) > 0:
@@ -181,12 +173,10 @@ if len(df_filtered) > 0:
         use_container_width=True
     )
     
-    # Delete selected rows
     if st.button("🗑️ Delete Selected Rows"):
         selected_indices = edited_df[edited_df["Select"]].index
         if len(selected_indices) > 0:
             df_filtered = df_filtered.drop(selected_indices).reset_index(drop=True)
-            # Update main df
             other_months = df[~df["YearMonth"].isin([selected_month])] if selected_month != "All" else pd.DataFrame()
             df = pd.concat([other_months, df_filtered], ignore_index=True)
             if "YearMonth" in df.columns:
@@ -197,15 +187,12 @@ if len(df_filtered) > 0:
         else:
             st.warning("No rows selected for deletion.")
     
-    # ---------- NEW: EXPORT TO EXCEL ----------
+    # ---------- EXPORT TO EXCEL ----------
     st.subheader("📎 Export Data")
-    
-    # Prepare data for export (all data, not filtered)
     export_df = df.copy()
     if "YearMonth" in export_df.columns:
         export_df = export_df.drop(columns=["YearMonth"])
     
-    # Convert to Excel in memory
     output = io.BytesIO()
     with pd.ExcelWriter(output, engine="openpyxl") as writer:
         export_df.to_excel(writer, sheet_name="Expenses", index=False)
@@ -217,8 +204,7 @@ if len(df_filtered) > 0:
         file_name=f"expenseflow_export_{date.today()}.xlsx",
         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
     )
-    
 else:
     st.info("No transactions for the selected month. Try adding some or change filter.")
 
-st.caption("💡 Tip: Select a specific month to set a budget and track alerts. Use the Excel export to backup your data.")
+st.caption("💡 Tip: Select a specific month to set a budget. Use dark mode for night viewing. Search by description to find transactions.")
